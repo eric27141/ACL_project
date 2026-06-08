@@ -1,6 +1,6 @@
 {
-    "com_port_left": "COM10",
-    "com_port_right": "COM11",
+    "com_port_left": "COM11",
+    "com_port_right": "COM10",
     "save_directory": "C:/Users/user/ACL project/Final/\u6578\u64da",
     "last_subject_id": "B123456789",
     "subject_history": [

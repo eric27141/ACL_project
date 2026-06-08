@@ -14,8 +14,8 @@ CONFIG_FILE = "imu_config.json"
 
 # Updated default settings to include Left/Right ports and Subject History
 DEFAULT_CONFIG = {
-    "com_port_left": "COM10",
-    "com_port_right": "COM11",
+    "com_port_left": "COM15",
+    "com_port_right": "COM20",
     "save_directory": "./data",
     "last_subject_id": "",
     "subject_history": [],
@@ -447,6 +447,14 @@ class SingleCalibrationValidatorWindow(tk.Toplevel):
         self.accel_z_history = deque(maxlen=10)
 
         self.last_data_state = None
+
+        # --- NEW: Control Bar ---
+        self.control_frame = tk.Frame(self, bg="#e0e0e0")
+        self.control_frame.pack(fill=tk.X)
+        
+        # Button is disabled initially so you can't click it while it's still calculating
+        self.save_btn = tk.Button(self.control_frame, text="💾 Save Plot as Image", font=("Arial", 10, "bold"), state=tk.DISABLED, command=self.save_plot)
+        self.save_btn.pack(side=tk.RIGHT, padx=10, pady=5)
         
         self.graph_frame = tk.Frame(self)
         self.graph_frame.pack(fill=tk.BOTH, expand=True)
@@ -649,12 +657,12 @@ class SettingsDialog(tk.Toplevel):
 
         tk.Label(com_frame, text="Left Leg COM Port:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
         self.com_left = tk.Entry(com_frame, width=15)
-        self.com_left.insert(0, self.config_data.get("com_port_left", "COM10"))
+        self.com_left.insert(0, self.config_data.get("com_port_left", "COM15"))
         self.com_left.grid(row=0, column=1, padx=5, pady=5)
 
         tk.Label(com_frame, text="Right Leg COM Port:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
         self.com_right = tk.Entry(com_frame, width=15)
-        self.com_right.insert(0, self.config_data.get("com_port_right", "COM11"))
+        self.com_right.insert(0, self.config_data.get("com_port_right", "COM20"))
         self.com_right.grid(row=1, column=1, padx=5, pady=5)
 
         # Save Directory
@@ -755,7 +763,14 @@ class TestAWindow(tk.Toplevel):
         self.update_ui("white", "black", "TEST COMPLETE!\n\nFlushing data to disk module...")
         self.engine.stop_active_logging()
         winsound.Beep(800, 150); winsound.Beep(1100, 150); winsound.Beep(1400, 350)
-        self.after(2000, self.destroy)
+        completed_file = self.engine.output_filepath
+        # Use a lambda to pass the file to the auto-launch function after 2 seconds
+        self.after(2000, lambda: self.auto_launch_plotter(completed_file))
+
+    def auto_launch_plotter(self, filepath):
+        # Launch the plotter, pass IMUDashboard as the parent, and give it the file
+        EmbeddedPlotterWindow(self.parent, filepath)
+        self.destroy() # Close the test screen
 
     def on_close(self):
         self.engine.stop_active_logging()
