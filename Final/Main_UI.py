@@ -14,8 +14,8 @@ CONFIG_FILE = "imu_config.json"
 
 # Updated default settings to include Left/Right ports and Subject History
 DEFAULT_CONFIG = {
-    "com_port_left": "COM15",
-    "com_port_right": "COM20",
+    "com_port_left": "COM10",
+    "com_port_right": "COM11",
     "save_directory": "./data",
     "last_subject_id": "",
     "subject_history": [],
@@ -262,6 +262,10 @@ class IMUDashboard(tk.Tk):
             
         base_dir = self.config_data.get("save_directory", "./data")
         subject_dir = os.path.join(base_dir, subject_id)
+        
+        # ---> ADD THIS LINE HERE <---
+        os.makedirs(subject_dir, exist_ok=True) 
+        
         file_name = f"{subject_id}_TestA_Squat_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
         final_path = os.path.join(subject_dir, file_name)
         
@@ -645,12 +649,12 @@ class SettingsDialog(tk.Toplevel):
 
         tk.Label(com_frame, text="Left Leg COM Port:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
         self.com_left = tk.Entry(com_frame, width=15)
-        self.com_left.insert(0, self.config_data.get("com_port_left", "COM15"))
+        self.com_left.insert(0, self.config_data.get("com_port_left", "COM10"))
         self.com_left.grid(row=0, column=1, padx=5, pady=5)
 
         tk.Label(com_frame, text="Right Leg COM Port:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
         self.com_right = tk.Entry(com_frame, width=15)
-        self.com_right.insert(0, self.config_data.get("com_port_right", "COM20"))
+        self.com_right.insert(0, self.config_data.get("com_port_right", "COM11"))
         self.com_right.grid(row=1, column=1, padx=5, pady=5)
 
         # Save Directory
@@ -773,16 +777,245 @@ class EmbeddedPlotterWindow(tk.Toplevel):
         self.graph_frame = tk.Frame(self)
         self.graph_frame.pack(fill=tk.BOTH, expand=True)
         
-        tk.Label(self.graph_frame, text="Rendering Kinematic Deviation Graphs... Please wait.", font=("Arial", 16)).pack(pady=200)
+        # --- NEW: Floating Loading UI Panel ---
+        self.loading_frame = tk.Frame(self.graph_frame, bg="#f0f0f0", bd=2, relief=tk.RAISED)
+        self.loading_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER, width=500, height=150)
         
-        # Yield to UI so the "Rendering" text appears, then run the heavy math
+        self.status_label = tk.Label(self.loading_frame, text="Initializing Data Engine...", font=("Arial", 14, "bold"), bg="#f0f0f0")
+        self.status_label.pack(pady=(20, 10))
+        
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(self.loading_frame, variable=self.progress_var, maximum=100, length=400)
+        self.progress_bar.pack(pady=10)
+        # --------------------------------------
+        
+        # Yield to UI so the loading panel appears, then run the heavy math
         self.after(100, self.generate_plot)
 
-    def generate_plot(self):
-        # 1. Clear the "Rendering..." label
-        for widget in self.graph_frame.winfo_children():
-            widget.destroy()
+    # def generate_plot(self):
+    #     # 1. Clear the "Rendering..." label
+    #     for widget in self.graph_frame.winfo_children():
+    #         widget.destroy()
             
+    #     import pandas as pd
+    #     import matplotlib.pyplot as plt
+    #     import numpy as np
+    #     import math
+        
+    #     # --- Local Madgwick Class ---
+    #     class Madgwick9DoF:
+    #         def __init__(self, beta=0.15):
+    #             self.beta = beta
+    #             self.q = np.array([1.0, 0.0, 0.0, 0.0])
+
+    #         def update_9dof(self, gx, gy, gz, ax, ay, az, mx, my, mz, dt):
+    #             q = self.q
+    #             qDot1 = 0.5 * (-q[1] * gx - q[2] * gy - q[3] * gz)
+    #             qDot2 = 0.5 * (q[0] * gx + q[2] * gz - q[3] * gy)
+    #             qDot3 = 0.5 * (q[0] * gy - q[1] * gz + q[3] * gx)
+    #             qDot4 = 0.5 * (q[0] * gz + q[1] * gy - q[2] * gx)
+
+    #             if not (ax == 0.0 and ay == 0.0 and az == 0.0):
+    #                 norm_acc = math.sqrt(ax * ax + ay * ay + az * az)
+    #                 ax /= norm_acc; ay /= norm_acc; az /= norm_acc
+
+    #                 norm_mag = math.sqrt(mx * mx + my * my + mz * mz)
+    #                 if norm_mag > 0.0:
+    #                     mx /= norm_mag; my /= norm_mag; mz /= norm_mag
+    #                     _2q0mx = 2.0 * q[0] * mx; _2q0my = 2.0 * q[0] * my; _2q0mz = 2.0 * q[0] * mz
+    #                     _2q1mx = 2.0 * q[1] * mx; _2q0 = 2.0 * q[0]; _2q1 = 2.0 * q[1]; _2q2 = 2.0 * q[2]
+    #                     _2q3 = 2.0 * q[3]; _2q0q2 = 2.0 * q[0] * q[2]; _2q2q3 = 2.0 * q[2] * q[3]
+    #                     q0q0 = q[0] * q[0]; q0q1 = q[0] * q[1]; q0q2 = q[0] * q[2]; q0q3 = q[0] * q[3]
+    #                     q1q1 = q[1] * q[1]; q1q2 = q[1] * q[2]; q1q3 = q[1] * q[3]
+    #                     q2q2 = q[2] * q[2]; q2q3 = q[2] * q[3]; q3q3 = q[3] * q[3]
+
+    #                     hx = mx * q0q0 - _2q0my * q[3] + _2q0mz * q[2] + mx * q1q1 + _2q1 * my * q[2] + _2q1 * mz * q[3] - mx * q2q2 - mx * q3q3
+    #                     hy = _2q0mx * q[3] + my * q0q0 - _2q0mz * q[1] + _2q1mx * q[2] - my * q1q1 + my * q2q2 + _2q2 * mz * q[3] - my * q3q3
+    #                     _2bx = math.sqrt(hx * hx + hy * hy)
+    #                     _2bz = -_2q0mx * q[2] + _2q0my * q[1] + mz * q0q0 + _2q1mx * q[3] - mz * q1q1 + _2q2 * my * q[3] - mz * q2q2 + mz * q3q3
+    #                     _4bx = 2.0 * _2bx; _4bz = 2.0 * _2bz
+
+    #                     s0 = -_2q2 * (2.0 * q1q3 - _2q0q2 - ax) + _2q1 * (2.0 * q0q1 + _2q2q3 - ay) - _2bz * q[2] * (_2bx * (0.5 - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (-_2bx * q[3] + _2bz * q[1]) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + _2bx * q[2] * (_2bx * (q0q2 + q1q3) + _2bz * (0.5 - q1q1 - q2q2) - mz)
+    #                     s1 = _2q3 * (2.0 * q1q3 - _2q0q2 - ax) + _2q0 * (2.0 * q0q1 + _2q2q3 - ay) - 4.0 * q[1] * (1.0 - 2.0 * q1q1 - 2.0 * q2q2 - az) + _2bz * q[3] * (_2bx * (0.5 - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (_2bx * q[2] + _2bz * q[0]) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + (_2bx * q[3] - _4bz * q[1]) * (_2bx * (q0q2 + q1q3) + _2bz * (0.5 - q1q1 - q2q2) - mz)
+    #                     s2 = -_2q0 * (2.0 * q1q3 - _2q0q2 - ax) + _2q3 * (2.0 * q0q1 + _2q2q3 - ay) - 4.0 * q[2] * (1.0 - 2.0 * q1q1 - 2.0 * q2q2 - az) + (-_4bx * q[2] - _2bz * q[0]) * (_2bx * (0.5 - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (_2bx * q[1] + _2bz * q[3]) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + (_2bx * q[0] - _4bz * q[2]) * (_2bx * (q0q2 + q1q3) + _2bz * (0.5 - q1q1 - q2q2) - mz)
+    #                     s3 = _2q1 * (2.0 * q1q3 - _2q0q2 - ax) + _2q2 * (2.0 * q0q1 + _2q2q3 - ay) + (-_4bx * q[3] + _2bz * q[1]) * (_2bx * (0.5 - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (-_2bx * q[0] + _2bz * q[2]) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + _2bx * q[1] * (_2bx * (q0q2 + q1q3) + _2bz * (0.5 - q1q1 - q2q2) - mz)
+                        
+    #                     norm_step = math.sqrt(s0 * s0 + s1 * s1 + s2 * s2 + s3 * s3)
+    #                     if norm_step > 0.0:
+    #                         s0 /= norm_step; s1 /= norm_step; s2 /= norm_step; s3 /= norm_step
+    #                         qDot1 -= self.beta * s0; qDot2 -= self.beta * s1; qDot3 -= self.beta * s2; qDot4 -= self.beta * s3
+
+    #             q[0] += qDot1 * dt; q[1] += qDot2 * dt; q[2] += qDot3 * dt; q[3] += qDot4 * dt
+    #             norm_q = math.sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3])
+    #             self.q = q / norm_q
+
+    #         def get_euler_degrees(self):
+    #             w, x, y, z = self.q
+    #             roll = math.atan2(2*(w*x + y*z), 1 - 2*(x*x + y*y))
+    #             sinp = max(-1.0, min(1.0, 2*(w*y - z*x))) 
+    #             pitch = math.asin(sinp)
+    #             yaw = math.atan2(2*(w*z + x*y), 1 - 2*(y*y + z*z))
+    #             return math.degrees(roll), math.degrees(pitch), (math.degrees(yaw) - 5.0 + 360.0) % 360.0
+
+    #     # --- Plotting Configuration ---
+    #     TARGET_SENSORS = ("R_Hip", "R_Shank", "R_Ankle", "L_Hip", "L_Shank", "L_Ankle")
+    #     IGNORE_SECONDS = 6.0
+    #     DEFAULT_DT = 0.01
+
+    #     try:
+    #         df = pd.read_csv(self.csv_file_path)
+    #     except Exception as e:
+    #         tk.Label(self.graph_frame, text=f"Error loading CSV:\n{e}", fg="red").pack()
+    #         return
+
+    #     grid_positions = {"R_Hip": (0, 0), "R_Shank": (0, 1), "R_Ankle": (0, 2),
+    #                       "L_Hip": (1, 0), "L_Shank": (1, 1), "L_Ankle": (1, 2)}
+
+    #     # Define the figure explicitly and save to self.fig
+    #     self.fig, axes = plt.subplots(2, 3, figsize=(16, 9), sharex=True)
+    #     self.fig.suptitle(f"Kinematic Deviation From Baseline - {os.path.basename(self.csv_file_path)}", fontsize=16, fontweight='bold')
+
+    #     for sensor in TARGET_SENSORS:
+    #         df_sensor = df[df['sensor_name'] == sensor].copy()
+    #         if df_sensor.empty: continue
+                
+    #         start_time = df_sensor['esp32_hw_time'].iloc[0]
+    #         time_sec = (df_sensor['esp32_hw_time'] - start_time) / 1000.0
+
+    #         # DMP Calc
+    #         w, x, y, z = df_sensor['q0'], df_sensor['q1'], df_sensor['q2'], df_sensor['q3']
+    #         dmp_roll = np.degrees(np.arctan2(2 * (w * x + y * z), 1 - 2 * (x**2 + y**2)))
+    #         sinp = np.clip(2 * (w * y - z * x), -1.0, 1.0)
+    #         dmp_pitch = np.degrees(np.arcsin(sinp))
+    #         dmp_yaw = (np.degrees(np.arctan2(2 * (w * z + x * y), 1 - 2 * (y**2 + z**2))) + 360.0) % 360.0
+
+    #         # Madgwick Calc
+    #         filter_9dof = Madgwick9DoF()
+    #         madg_roll, madg_pitch, madg_yaw = [], [], []
+    #         last_mx, last_my, last_mz = 0.0, 0.0, 0.0
+    #         last_timestamp = df_sensor['esp32_hw_time'].iloc[0]
+            
+    #         for i in range(len(df_sensor)):
+    #             current_timestamp = df_sensor['esp32_hw_time'].iloc[i]
+    #             dt = DEFAULT_DT if i == 0 else (current_timestamp - last_timestamp) / 1000.0
+    #             if dt <= 0.0 or dt > 0.5: dt = DEFAULT_DT
+    #             last_timestamp = current_timestamp
+
+    #             filter_9dof.beta = 5.0 if ((current_timestamp - start_time) / 1000.0) < 2.0 else 0.15
+
+    #             ax_val, ay_val, az_val = df_sensor['ax'].iloc[i], df_sensor['ay'].iloc[i], df_sensor['az'].iloc[i]
+    #             gx, gy, gz = math.radians(df_sensor['gx'].iloc[i]), math.radians(df_sensor['gy'].iloc[i]), math.radians(df_sensor['gz'].iloc[i])
+    #             mx_val, my_val, mz_val = df_sensor['mx'].iloc[i], df_sensor['my'].iloc[i], df_sensor['mz'].iloc[i]
+                
+    #             if mx_val != 0.0 or my_val != 0.0 or mz_val != 0.0:
+    #                 last_mx, last_my, last_mz = mx_val, my_val, mz_val
+                
+    #             filter_9dof.update_9dof(gx, gy, gz, ax_val, ay_val, az_val, last_mx, last_my, last_mz, dt)
+    #             r, p, y_deg = filter_9dof.get_euler_degrees()
+    #             madg_roll.append(r); madg_pitch.append(p); madg_yaw.append(y_deg)
+
+    #         # Filtering and Masking
+    #         valid_mask = time_sec >= IGNORE_SECONDS
+    #         time_sec = time_sec[valid_mask]
+            
+    #         t_pose_mask = (df_sensor['t_pose_flag'].values == 1)[valid_mask] if 't_pose_flag' in df_sensor.columns else np.zeros(len(time_sec), dtype=bool)
+
+    #         dmp_roll = dmp_roll[valid_mask]
+    #         dmp_pitch = dmp_pitch[valid_mask]
+    #         dmp_yaw = np.degrees(np.unwrap(np.radians(dmp_yaw[valid_mask])))
+            
+    #         madg_roll = np.array(madg_roll)[valid_mask]
+    #         madg_pitch = np.array(madg_pitch)[valid_mask]
+    #         madg_yaw = np.degrees(np.unwrap(np.radians(np.array(madg_yaw)[valid_mask])))
+
+    #         # Alignment and Fusion
+    #         if np.any(t_pose_mask):
+    #             yaw_offset = np.mean(dmp_yaw[t_pose_mask] - madg_yaw[t_pose_mask])
+    #             dmp_yaw_aligned = dmp_yaw - yaw_offset
+    #         else:
+    #             dmp_yaw_aligned = dmp_yaw 
+                
+    #         ALPHA = 0.98 
+    #         fused_roll = (ALPHA * dmp_roll) + ((1.0 - ALPHA) * madg_roll)
+    #         fused_pitch = (ALPHA * dmp_pitch) + ((1.0 - ALPHA) * madg_pitch)
+    #         fused_yaw = (ALPHA * dmp_yaw_aligned) + ((1.0 - ALPHA) * madg_yaw)
+
+    #         # --- NEW LAYER: ZERO ALL THREE FUSED AXES AGAINST T-POSE BASELINE ---
+    #         if np.any(t_pose_mask):
+    #             baseline_roll = np.mean(fused_roll[t_pose_mask])
+    #             baseline_pitch = np.mean(fused_pitch[t_pose_mask])
+    #             baseline_yaw = np.mean(fused_yaw[t_pose_mask])
+    #         else:
+    #             # Failsafe fallback: if no T-pose flag exists, zero relative to the first valid row
+    #             baseline_roll = fused_roll[0] if len(fused_roll) > 0 else 0.0
+    #             baseline_pitch = fused_pitch[0] if len(fused_pitch) > 0 else 0.0
+    #             baseline_yaw = fused_yaw[0] if len(fused_yaw) > 0 else 0.0
+
+    #         # Calculate relative angular change from the posture baseline
+    #         change_roll = fused_roll - baseline_roll
+    #         change_pitch = fused_pitch - baseline_pitch
+    #         change_yaw = fused_yaw - baseline_yaw
+
+    #         # Calculate relative angular change from the posture baseline
+    #         change_roll = fused_roll - baseline_roll
+    #         change_pitch = fused_pitch - baseline_pitch
+    #         change_yaw = fused_yaw - baseline_yaw
+
+    #         # --- NEW LAYER: INVERT LEFT SENSOR DATA ---
+    #         # Compensate for 180-degree physical mounting mirror
+    #         if sensor.startswith("R_"):
+    #             change_roll = -change_roll
+    #             change_pitch = -change_pitch
+    #             change_yaw = -change_yaw
+
+    #         # Plotting
+    #         if sensor in grid_positions:
+    #             row, col = grid_positions[sensor]
+    #             ax = axes[row][col]
+    #             ax.set_title(f"{sensor}", fontweight='bold')
+    #             ax.grid(True, linestyle='--', alpha=0.6)
+                
+    #             # Updated to plot the relative changes from zero origin
+    #             ax.plot(time_sec, change_roll, label="𝚫 Roll (Side-Side)", color='#FF4B4B', linewidth=2.0)
+    #             ax.plot(time_sec, change_pitch, label="𝚫 Pitch (Flexion)", color='#4CAF50', linewidth=2.0)
+    #             ax.plot(time_sec, change_yaw, label="𝚫 Yaw (Rotation)", color='#008CBA', linewidth=2.0)
+                
+    #             if np.any(t_pose_mask):
+    #                 # Draw a solid horizontal line highlighting the true 0.0 reference line
+    #                 ax.axhline(0.0, color='black', linestyle='-', linewidth=1.0, alpha=0.7)
+    #                 ax.fill_between(time_sec, ax.get_ylim()[0], ax.get_ylim()[1], where=t_pose_mask, color='yellow', alpha=0.15, label="T-Pose Window")
+                
+    #             if row == 0 and col == 0: ax.legend(loc="upper right", fontsize='small', ncol=2)
+    #             if row == 1: ax.set_xlabel("Hardware Time (Seconds)", fontweight='bold')
+    #             if col == 0: ax.set_ylabel("Angular Deviation (°)", fontweight='bold')
+
+    #     for col in range(3):
+    #         ax_right = axes[0][col]
+    #         ax_left = axes[1][col]
+                
+    #         # Fetch the auto-scaled limits from both the top and bottom graphs
+    #         r_min, r_max = ax_right.get_ylim()
+    #         l_min, l_max = ax_left.get_ylim()
+                
+    #         # Find the absolute extremes across both sensors
+    #         common_min = min(r_min, l_min)
+    #         common_max = max(r_max, l_max)
+            
+    #         # Force both graphs to use this identical window
+    #         ax_right.set_ylim(common_min, common_max)
+    #         ax_left.set_ylim(common_min, common_max)
+
+    #     self.fig.tight_layout()
+
+    #     # Embed into Tkinter
+    #     canvas = FigureCanvasTkAgg(self.fig, master=self.graph_frame)
+    #     canvas.draw()
+    #     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+    #     toolbar = NavigationToolbar2Tk(canvas, self.graph_frame)
+    #     toolbar.update()
+    #     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    def generate_plot(self):
         import pandas as pd
         import matplotlib.pyplot as plt
         import numpy as np
@@ -849,19 +1082,27 @@ class EmbeddedPlotterWindow(tk.Toplevel):
         DEFAULT_DT = 0.01
 
         try:
+            self.status_label.config(text="Reading CSV File from Disk...")
+            self.update_idletasks()
             df = pd.read_csv(self.csv_file_path)
         except Exception as e:
-            tk.Label(self.graph_frame, text=f"Error loading CSV:\n{e}", fg="red").pack()
+            self.status_label.config(text=f"Error loading CSV:\n{e}", fg="red")
             return
 
         grid_positions = {"R_Hip": (0, 0), "R_Shank": (0, 1), "R_Ankle": (0, 2),
                           "L_Hip": (1, 0), "L_Shank": (1, 1), "L_Ankle": (1, 2)}
 
-        # Define the figure explicitly and save to self.fig
         self.fig, axes = plt.subplots(2, 3, figsize=(16, 9), sharex=True)
         self.fig.suptitle(f"Kinematic Deviation From Baseline - {os.path.basename(self.csv_file_path)}", fontsize=16, fontweight='bold')
 
-        for sensor in TARGET_SENSORS:
+        total_sensors = len(TARGET_SENSORS)
+
+        for idx, sensor in enumerate(TARGET_SENSORS):
+            
+            # Update Macro Progress
+            self.status_label.config(text=f"Processing Node {idx+1}/6: {sensor}")
+            self.update_idletasks()
+            
             df_sensor = df[df['sensor_name'] == sensor].copy()
             if df_sensor.empty: continue
                 
@@ -881,7 +1122,17 @@ class EmbeddedPlotterWindow(tk.Toplevel):
             last_mx, last_my, last_mz = 0.0, 0.0, 0.0
             last_timestamp = df_sensor['esp32_hw_time'].iloc[0]
             
-            for i in range(len(df_sensor)):
+            total_rows = len(df_sensor)
+            
+            for i in range(total_rows):
+                # --- NEW: Micro Progress Update every 200 rows ---
+                if i % 200 == 0:
+                    base_progress = (idx / total_sensors) * 100
+                    sub_progress = (i / total_rows) * (100 / total_sensors)
+                    self.progress_var.set(base_progress + sub_progress)
+                    self.update_idletasks()
+                # -------------------------------------------------
+
                 current_timestamp = df_sensor['esp32_hw_time'].iloc[i]
                 dt = DEFAULT_DT if i == 0 else (current_timestamp - last_timestamp) / 1000.0
                 if dt <= 0.0 or dt > 0.5: dt = DEFAULT_DT
@@ -926,21 +1177,23 @@ class EmbeddedPlotterWindow(tk.Toplevel):
             fused_pitch = (ALPHA * dmp_pitch) + ((1.0 - ALPHA) * madg_pitch)
             fused_yaw = (ALPHA * dmp_yaw_aligned) + ((1.0 - ALPHA) * madg_yaw)
 
-            # --- NEW LAYER: ZERO ALL THREE FUSED AXES AGAINST T-POSE BASELINE ---
             if np.any(t_pose_mask):
                 baseline_roll = np.mean(fused_roll[t_pose_mask])
                 baseline_pitch = np.mean(fused_pitch[t_pose_mask])
                 baseline_yaw = np.mean(fused_yaw[t_pose_mask])
             else:
-                # Failsafe fallback: if no T-pose flag exists, zero relative to the first valid row
                 baseline_roll = fused_roll[0] if len(fused_roll) > 0 else 0.0
                 baseline_pitch = fused_pitch[0] if len(fused_pitch) > 0 else 0.0
                 baseline_yaw = fused_yaw[0] if len(fused_yaw) > 0 else 0.0
 
-            # Calculate relative angular change from the posture baseline
             change_roll = fused_roll - baseline_roll
             change_pitch = fused_pitch - baseline_pitch
             change_yaw = fused_yaw - baseline_yaw
+
+            if sensor.startswith("R_"):
+                change_roll = -change_roll
+                change_pitch = -change_pitch
+                change_yaw = -change_yaw
 
             # Plotting
             if sensor in grid_positions:
@@ -949,13 +1202,11 @@ class EmbeddedPlotterWindow(tk.Toplevel):
                 ax.set_title(f"{sensor}", fontweight='bold')
                 ax.grid(True, linestyle='--', alpha=0.6)
                 
-                # Updated to plot the relative changes from zero origin
                 ax.plot(time_sec, change_roll, label="𝚫 Roll (Side-Side)", color='#FF4B4B', linewidth=2.0)
                 ax.plot(time_sec, change_pitch, label="𝚫 Pitch (Flexion)", color='#4CAF50', linewidth=2.0)
                 ax.plot(time_sec, change_yaw, label="𝚫 Yaw (Rotation)", color='#008CBA', linewidth=2.0)
                 
                 if np.any(t_pose_mask):
-                    # Draw a solid horizontal line highlighting the true 0.0 reference line
                     ax.axhline(0.0, color='black', linestyle='-', linewidth=1.0, alpha=0.7)
                     ax.fill_between(time_sec, ax.get_ylim()[0], ax.get_ylim()[1], where=t_pose_mask, color='yellow', alpha=0.15, label="T-Pose Window")
                 
@@ -963,7 +1214,28 @@ class EmbeddedPlotterWindow(tk.Toplevel):
                 if row == 1: ax.set_xlabel("Hardware Time (Seconds)", fontweight='bold')
                 if col == 0: ax.set_ylabel("Angular Deviation (°)", fontweight='bold')
 
+        # Final Update
+        self.status_label.config(text="Synchronizing Graph Limits & Rendering...")
+        self.progress_var.set(100)
+        self.update_idletasks()
+
+        for col in range(3):
+            ax_right = axes[0][col]
+            ax_left = axes[1][col]
+            
+            r_min, r_max = ax_right.get_ylim()
+            l_min, l_max = ax_left.get_ylim()
+            
+            common_min = min(r_min, l_min)
+            common_max = max(r_max, l_max)
+        
+            ax_right.set_ylim(common_min, common_max)
+            ax_left.set_ylim(common_min, common_max)
+
         self.fig.tight_layout()
+
+        # --- NEW: Destroy the loading panel before showing the graphs ---
+        self.loading_frame.destroy()
 
         # Embed into Tkinter
         canvas = FigureCanvasTkAgg(self.fig, master=self.graph_frame)

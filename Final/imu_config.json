@@ -1,7 +1,7 @@
 {
-    "com_port_left": "COM15",
-    "com_port_right": "COM20",
-    "save_directory": "C:/Users/bryan/Desktop/IMU_GithubV2/IMU_Master/IMU_Hardware/F103C8T6_V2-2_Main_MagCal/Computer/Python/Game_V1",
+    "com_port_left": "COM10",
+    "com_port_right": "COM11",
+    "save_directory": "C:/Users/user/ACL project/Final/\u6578\u64da",
     "last_subject_id": "B123456789",
     "subject_history": [
         "A123456789",
