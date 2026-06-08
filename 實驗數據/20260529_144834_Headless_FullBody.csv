@@ -1,0 +1,1 @@
+python_time,esp32_hw_time,sensor_name,ax,ay,az,gx,gy,gz,mx,my,mz,q0,q1,q2,q3,quat_roll,quat_pitch,quat_yaw,is_paused_flag
