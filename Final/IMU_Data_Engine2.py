@@ -38,6 +38,7 @@ class IMUDataEngine:
         self.baseline_computed = {name: False for name in self.sensor_names}
         self.baseline_offsets = {name: {'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0} for name in self.sensor_names}
         self.calibration_data = {name: {'roll': [], 'pitch': [], 'yaw': []} for name in self.sensor_names}
+        self.latest_orientation_cache = {name: {'q0': 1.0, 'q1': 0.0, 'q2': 0.0, 'q3': 0.0, 'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0} for name in self.sensor_names}
 
     def start_passive_monitor(self):
         """Starts background serial listeners immediately upon UI boot to track health."""
@@ -106,6 +107,74 @@ class IMUDataEngine:
         """Returns a safe copy of the latest raw sensor values for the validator."""
         with self.stats_lock:
             return {name: data.copy() for name, data in self.latest_raw_cache.items()}
+
+    def _euler_to_quaternion(self, roll_deg, pitch_deg, yaw_deg):
+        roll = math.radians(roll_deg)
+        pitch = math.radians(pitch_deg)
+        yaw = math.radians(yaw_deg)
+
+        cy = math.cos(yaw * 0.5)
+        sy = math.sin(yaw * 0.5)
+        cp = math.cos(pitch * 0.5)
+        sp = math.sin(pitch * 0.5)
+        cr = math.cos(roll * 0.5)
+        sr = math.sin(roll * 0.5)
+
+        qw = cr * cp * cy + sr * sp * sy
+        qx = sr * cp * cy - cr * sp * sy
+        qy = cr * sp * cy + sr * cp * sy
+        qz = cr * cp * sy - sr * sp * cy
+        return qw, qx, qy, qz
+
+    def _rotate_vector_by_quaternion(self, quaternion, vector):
+        qw, qx, qy, qz = quaternion
+        vx, vy, vz = vector
+
+        ix = qw * vx + qy * vz - qz * vy
+        iy = qw * vy + qz * vx - qx * vz
+        iz = qw * vz + qx * vy - qy * vx
+        iw = -qx * vx - qy * vy - qz * vz
+
+        return (
+            ix * qw + iw * (-qx) + iy * (-qz) - iz * (-qy),
+            iy * qw + iw * (-qy) + iz * (-qx) - ix * (-qz),
+            iz * qw + iw * (-qz) + ix * (-qy) - iy * (-qx),
+        )
+
+    def _calculate_angle_between_segments(self, sensor_a, sensor_b):
+        with self.stats_lock:
+            data_a = self.latest_orientation_cache.get(sensor_a)
+            data_b = self.latest_orientation_cache.get(sensor_b)
+
+        if not data_a or not data_b:
+            return None
+
+        quaternion_a = self._euler_to_quaternion(data_a['roll'], data_a['pitch'], data_a['yaw'])
+        quaternion_b = self._euler_to_quaternion(data_b['roll'], data_b['pitch'], data_b['yaw'])
+
+        vector_a = self._rotate_vector_by_quaternion(quaternion_a, (0.0, 0.0, 1.0))
+        vector_b = self._rotate_vector_by_quaternion(quaternion_b, (0.0, 0.0, 1.0))
+
+        dot_product = vector_a[0] * vector_b[0] + vector_a[1] * vector_b[1] + vector_a[2] * vector_b[2]
+        dot_product = max(-1.0, min(1.0, dot_product))
+        return math.degrees(math.acos(dot_product))
+
+    def get_latest_joint_angles(self):
+        return {
+            "R_HIP-R_SHANK": self._calculate_angle_between_segments("R_Hip", "R_Shank"),
+            "L_HIP-L_SHANK": self._calculate_angle_between_segments("L_Hip", "L_Shank"),
+        }
+
+    def is_squat_hold_ready(self, min_angle=50.0, max_angle=55.0):
+        angles = self.get_latest_joint_angles()
+        right_angle = angles.get("R_HIP-R_SHANK")
+        left_angle = angles.get("L_HIP-L_SHANK")
+
+        if right_angle is None or left_angle is None:
+            return False
+
+        # Both sides must be within the target range before the 5-second squat hold begins.
+        return min_angle <= right_angle <= max_angle and min_angle <= left_angle <= max_angle
 
     # def hardware_reset(self):
     #     """Sends a hardware reboot sequence to the ESP32 adapters."""
@@ -382,6 +451,12 @@ class IMUDataEngine:
                                 for val, name_var in [(yaw_out, 'yaw'), (roll_out, 'roll'), (pitch_out, 'pitch')]:
                                     if val > 180: val -= 360
                                     elif val < -180: val += 360
+
+                            with self.stats_lock:
+                                self.latest_orientation_cache[device_name] = {
+                                    'q0': q0, 'q1': q1, 'q2': q2, 'q3': q3,
+                                    'roll': roll_out, 'pitch': pitch_out, 'yaw': yaw_out,
+                                }
 
                             self.log_queue.put((
                                 datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3], adjusted_esp32_ts, device_name, 

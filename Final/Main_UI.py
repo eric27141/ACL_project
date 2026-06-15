@@ -11,6 +11,7 @@ from collections import deque
 import time
 
 CONFIG_FILE = "imu_config.json"
+SQUAT_TARGET_LABEL = "R_HIP-R_SHANK / L_HIP-L_SHANK"
 
 # Updated default settings to include Left/Right ports and Subject History
 DEFAULT_CONFIG = {
@@ -709,6 +710,10 @@ class TestAWindow(tk.Toplevel):
         self.max_reps = 5
         self.stand_time = 3
         self.squat_time = 5
+        self.squat_target_min_angle = 50.0
+        self.squat_target_max_angle = 60.0
+        self.squat_hold_active = False
+        self.squat_hold_remaining = self.squat_time
         
         self.bind('<t>', self.start_t_pose); self.bind('<T>', self.start_t_pose)
         self.update_ui("white", "black", "SUBJECT: Adopt Starting Pose\n\nOPERATOR: Strike Key 'T' to begin calibration.")
@@ -745,19 +750,45 @@ class TestAWindow(tk.Toplevel):
             self.after(1000, self.run_stand_phase, seconds_left - 1)
         else:
             winsound.Beep(1200, 500)
-            self.run_squat_phase(self.squat_time)
+            self.run_squat_phase()
 
-    def run_squat_phase(self, seconds_left):
-        if seconds_left > 0:
-            self.update_ui("black", "green", f"DROP DOWN INTO SQUAT AND HOLD\n\nExecution Rep: {self.reps_done + 1}/{self.max_reps}\n\nHold: {seconds_left}s")
-            self.after(1000, self.run_squat_phase, seconds_left - 1)
-        else:
-            self.reps_done += 1
-            winsound.Beep(1500, 500)
-            if self.reps_done < self.max_reps:
-                self.run_stand_phase(self.stand_time)
+    def run_squat_phase(self):
+        angles = self.engine.get_latest_joint_angles()
+        right_angle = angles.get("R_HIP-R_SHANK")
+        left_angle = angles.get("L_HIP-L_SHANK")
+        right_text = f"{right_angle:.1f}°" if right_angle is not None else "--"
+        left_text = f"{left_angle:.1f}°" if left_angle is not None else "--"
+
+        if self.engine.is_squat_hold_ready(self.squat_target_min_angle, self.squat_target_max_angle):
+            if not self.squat_hold_active:
+                self.squat_hold_active = True
+                self.squat_hold_remaining = self.squat_time
+
+            if self.squat_hold_remaining > 0:
+                self.update_ui(
+                    "black",
+                    "green",
+                    f"DROP DOWN INTO SQUAT AND HOLD\n\nTarget: {SQUAT_TARGET_LABEL}\n\nAngle Range: {self.squat_target_min_angle:.0f}°-{self.squat_target_max_angle:.0f}°\n\nExecution Rep: {self.reps_done + 1}/{self.max_reps}\n\nHold: {self.squat_hold_remaining}s\n\nCurrent: R={right_text} / L={left_text}"
+                )
+                self.squat_hold_remaining -= 1
+                self.after(1000, self.run_squat_phase)
             else:
-                self.finish_test()
+                self.reps_done += 1
+                self.squat_hold_active = False
+                winsound.Beep(1500, 500)
+                if self.reps_done < self.max_reps:
+                    self.run_stand_phase(self.stand_time)
+                else:
+                    self.finish_test()
+        else:
+            self.squat_hold_active = False
+            self.squat_hold_remaining = self.squat_time
+            self.update_ui(
+                "black",
+                "orange",
+                f"DROP DOWN INTO SQUAT AND HOLD\n\nTarget: {SQUAT_TARGET_LABEL}\n\nWaiting for both sides to reach {self.squat_target_min_angle:.0f}°-{self.squat_target_max_angle:.0f}°\n\nExecution Rep: {self.reps_done + 1}/{self.max_reps}\n\nCurrent: R={right_text} / L={left_text}"
+            )
+            self.after(1000, self.run_squat_phase)
 
     def finish_test(self):
         self.update_ui("white", "black", "TEST COMPLETE!\n\nFlushing data to disk module...")
