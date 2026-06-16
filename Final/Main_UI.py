@@ -716,7 +716,8 @@ class TestAWindow(tk.Toplevel):
         self.squat_hold_remaining = self.squat_time
         
         self.bind('<t>', self.start_t_pose); self.bind('<T>', self.start_t_pose)
-        self.update_ui("white", "black", "SUBJECT: Adopt Starting Pose\n\nOPERATOR: Strike Key 'T' to begin calibration.")
+        self.bind('<c>', self.zero_current_angles); self.bind('<C>', self.zero_current_angles)
+        self.update_ui("white", "black", "SUBJECT: Adopt Starting Pose\n\nOPERATOR: Strike Key 'T' to begin calibration.\n\nPress 'C' to zero current angles.")
 
     def update_ui(self, fg, bg, text):
         self.configure(bg=bg); self.info_label.configure(fg=fg, bg=bg, text=text)
@@ -726,6 +727,15 @@ class TestAWindow(tk.Toplevel):
         winsound.Beep(1000, 400)
         self.engine.set_t_pose(True)
         self.countdown_t_pose(5)
+
+    def zero_current_angles(self, event=None):
+        success = self.engine.zero_current_angles()
+        if success:
+            winsound.Beep(900, 200)
+            self.update_ui("white", "black", "CURRENT ANGLES ZEROED\n\nContinue with T-pose calibration or close this window.")
+        else:
+            winsound.Beep(400, 200)
+            self.update_ui("white", "black", "NO VALID ANGLE DATA AVAILABLE TO ZERO\n\nPlease wait for IMU data before pressing 'C'.")
 
     def countdown_t_pose(self, seconds_left):
         if seconds_left > 0:

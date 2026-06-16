@@ -22,8 +22,16 @@ class IMUDataEngine:
         self.threads = []
         self.log_queue = queue.Queue()
         self.stats_lock = threading.Lock()
-        # ---> ADD THIS LINE <---
         self.pause_serial = False
+
+        # Manual calibration state for on-demand T-pose baseline resets
+        self.manual_calibration_active = False
+        self.manual_calibration_start = None
+        self.manual_calibration_duration = 5.0
+        self.manual_calibration_data = {name: {'roll': [], 'pitch': [], 'yaw': []} for name in self.sensor_names}
+
+        # Saved zero offsets for all sensors
+        self.zero_angle_offsets = {name: {'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0} for name in self.sensor_names}
         
         # Persistent Memory Cache (Your 6 state variables)
         self.battery_levels = {name: "?" for name in self.sensor_names}
@@ -77,6 +85,56 @@ class IMUDataEngine:
     def set_t_pose(self, state: bool):
         self.is_t_pose = state
 
+    def start_manual_calibration(self, duration_sec: float = None):
+        if duration_sec is not None:
+            self.manual_calibration_duration = duration_sec
+        self.manual_calibration_active = True
+        self.manual_calibration_start = time.time()
+        self.manual_calibration_data = {name: {'roll': [], 'pitch': [], 'yaw': []} for name in self.sensor_names}
+        self.baseline_computed = {name: False for name in self.sensor_names}
+        self.set_t_pose(True)
+        print(f"🔧 Manual calibration started for {self.manual_calibration_duration:.1f}s")
+
+    def cancel_manual_calibration(self):
+        self.manual_calibration_active = False
+        self.manual_calibration_start = None
+        self.set_t_pose(False)
+        print("⚠️ Manual calibration canceled")
+
+    def is_manual_calibrating(self):
+        return self.manual_calibration_active
+
+    def _try_finalize_manual_calibration(self, device_name, raw_roll, raw_pitch, raw_yaw):
+        if not self.manual_calibration_active:
+            return
+
+        if self.baseline_computed[device_name]:
+            return
+
+        elapsed = time.time() - self.manual_calibration_start
+        if elapsed < self.manual_calibration_duration:
+            self.manual_calibration_data[device_name]['roll'].append(raw_roll)
+            self.manual_calibration_data[device_name]['pitch'].append(raw_pitch)
+            self.manual_calibration_data[device_name]['yaw'].append(raw_yaw)
+            return
+
+        # Compute baseline for this sensor once the calibration window has finished
+        if self.manual_calibration_data[device_name]['roll']:
+            self.baseline_offsets[device_name]['roll'] = np.mean(self.manual_calibration_data[device_name]['roll'])
+            self.baseline_offsets[device_name]['pitch'] = np.mean(self.manual_calibration_data[device_name]['pitch'])
+            yaws = np.radians(self.manual_calibration_data[device_name]['yaw'])
+            mean_yaw_rad = np.arctan2(np.mean(np.sin(yaws)), np.mean(np.cos(yaws)))
+            self.baseline_offsets[device_name]['yaw'] = (np.degrees(mean_yaw_rad) + 360) % 360
+
+        self.baseline_computed[device_name] = True
+
+        # If all sensors have completed their baseline, end manual calibration mode
+        if all(self.baseline_computed.values()):
+            self.manual_calibration_active = False
+            self.manual_calibration_start = None
+            self.set_t_pose(False)
+            print("✅ Manual calibration complete for all sensors")
+
     def get_latest_diagnostics(self):
         """Returns live connection status, battery levels, and frequency data from memory."""
         now = time.time()
@@ -91,6 +149,25 @@ class IMUDataEngine:
                     "hz": self.current_hz[name] if is_connected else 0.0
                 }
         return diagnostics
+
+    def zero_current_angles(self):
+        with self.stats_lock:
+            current_data = {name: self.latest_orientation_cache[name].copy() for name in self.sensor_names}
+
+            has_valid_data = any(
+                current_data[name]["roll"] != 0.0 or current_data[name]["pitch"] != 0.0 or current_data[name]["yaw"] != 0.0
+                for name in self.sensor_names
+            )
+            if not has_valid_data:
+                return False
+
+            for name in self.sensor_names:
+                self.zero_angle_offsets[name]["roll"] = current_data[name]["roll"]
+                self.zero_angle_offsets[name]["pitch"] = current_data[name]["pitch"]
+                self.zero_angle_offsets[name]["yaw"] = current_data[name]["yaw"]
+
+            # Keep the latest orientation cache intact; subsequent packets will apply the new zero offset.
+        return True
 
     def calculate_hz_snapshot(self, elapsed_seconds):
         """Calculates current frequency metrics based on internal counters."""
@@ -403,9 +480,34 @@ class IMUDataEngine:
                                     "mx": mx, "my": my, "mz": mz
                                 }
                             
-                            if not self.is_logging_active: continue
-                            
                             raw_esp32_ts = int(parts[1])
+                            if raw_esp32_ts == last_raw_esp_ts[device_name]:
+                                shift_accumulator[device_name] += 10
+                            else:
+                                shift_accumulator[device_name] = 0
+                            last_raw_esp_ts[device_name] = raw_esp32_ts
+                            adjusted_esp32_ts = raw_esp32_ts + shift_accumulator[device_name]
+
+                            if self.first_hw_timestamp[device_name] is None:
+                                self.first_hw_timestamp[device_name] = adjusted_esp32_ts
+                            plot_time_sec = (adjusted_esp32_ts - self.first_hw_timestamp[device_name]) / 1000.0
+
+                            ax, ay, az = int(parts[3])/10000.0, int(parts[4])/10000.0, int(parts[5])/10000.0
+                            gx_dps, gy_dps, gz_dps = int(parts[6])/100.0, int(parts[7])/100.0, int(parts[8])/100.0
+                            mx, my, mz = int(parts[9])/100.0, int(parts[10])/100.0, int(parts[11])/100.0
+                            q0, q1, q2, q3 = int(parts[12])/32767.0, int(parts[13])/32767.0, int(parts[14])/32767.0, int(parts[15])/32767.0
+
+                            roll_rad = math.atan2(2.0*(q0*q1 + q2*q3), 1.0 - 2.0*(q1*q1 + q2*q2))
+                            sinp = max(-1.0, min(1.0, 2.0 * (q0 * q2 - q3 * q1)))
+                            pitch_rad = math.asin(sinp)
+                            yaw_rad = math.atan2(2.0*(q0*q3 + q1*q2), 1.0 - 2.0*(q2 * q2 + q3 * q3))
+
+                            raw_roll, raw_pitch = math.degrees(roll_rad), math.degrees(pitch_rad)
+                            raw_yaw = (math.degrees(yaw_rad) + 360.0) % 360.0
+
+                            self._try_finalize_manual_calibration(device_name, raw_roll, raw_pitch, raw_yaw)
+                            if not self.is_logging_active and not self.manual_calibration_active:
+                                continue
                             if raw_esp32_ts == last_raw_esp_ts[device_name]:
                                 shift_accumulator[device_name] += 10
                             else:
@@ -447,7 +549,12 @@ class IMUDataEngine:
                                 roll_out = raw_roll - self.baseline_offsets[device_name]['roll']
                                 pitch_out = raw_pitch - self.baseline_offsets[device_name]['pitch']
                                 yaw_out = raw_yaw - self.baseline_offsets[device_name]['yaw']
-                                
+
+                                # Apply any runtime zero-angle offsets after baseline correction.
+                                roll_out -= self.zero_angle_offsets[device_name]['roll']
+                                pitch_out -= self.zero_angle_offsets[device_name]['pitch']
+                                yaw_out -= self.zero_angle_offsets[device_name]['yaw']
+
                                 for val, name_var in [(yaw_out, 'yaw'), (roll_out, 'roll'), (pitch_out, 'pitch')]:
                                     if val > 180: val -= 360
                                     elif val < -180: val += 360
