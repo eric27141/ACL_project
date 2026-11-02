@@ -12,7 +12,7 @@ import msvcrt  # Built-in Windows library for background key presses
 # ==========================================
 # CONFIGURATION
 # ==========================================
-COM_PORTS = ['COM10', 'COM11'] 
+COM_PORTS = ['COM8', 'COM7']
 BAUD_RATE = 921600        
 
 CALIBRATION_TIME_SEC = 5.0  

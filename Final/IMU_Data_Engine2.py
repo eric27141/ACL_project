@@ -1,4 +1,13 @@
-import serial
+try:
+    import serial
+except ImportError:  # pragma: no cover - optional dependency for hardware use only
+    class _MissingSerial:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("pyserial is required for hardware communication. Install it with 'pip install pyserial'.")
+
+    class serial:  # type: ignore[assignment]
+        Serial = _MissingSerial
+
 import math
 import time
 import os
@@ -42,6 +51,7 @@ class IMUDataEngine:
         
         # Kinematic Memory Structures
         self.output_filepath = ""
+        self.trial_stage = 0
         self.first_hw_timestamp = {name: None for name in self.sensor_names}
         self.baseline_computed = {name: False for name in self.sensor_names}
         self.baseline_offsets = {name: {'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0} for name in self.sensor_names}
@@ -64,26 +74,39 @@ class IMUDataEngine:
                 t = threading.Thread(target=self._read_serial, args=(port.strip(),), daemon=True)
                 t.start()
                 self.threads.append(t)
-        print("📡 Background Passive Health Monitoring System Active.")
+        print("Background Passive Health Monitoring System Active.")
 
     def start_active_logging(self, filepath):
         """Enables saving streaming data into a formal subject file path."""
         self.output_filepath = filepath
-        # Reset calibration states for a clean run
+        output_dir = os.path.dirname(filepath)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        # Clear stale queued rows so each trial starts cleanly and the output directory is always valid.
+        self.log_queue = queue.Queue()
         self.first_hw_timestamp = {name: None for name in self.sensor_names}
         self.baseline_computed = {name: False for name in self.sensor_names}
         self.calibration_data = {name: {'roll': [], 'pitch': [], 'yaw': []} for name in self.sensor_names}
-        
-        self.is_logging_active = True 
-        print(f"💾 Active Trial Recording Engaged -> {filepath}")
+
+        self.is_logging_active = True
+        print(f"Active Trial Recording Engaged -> {filepath}")
 
     def stop_active_logging(self):
         """Disengages file writing but leaves passive diagnostics running."""
         self.is_logging_active = False
-        print("⚪ Active Trial Recording Disengaged. Reverting to Passive Monitoring.")
+        while not self.log_queue.empty():
+            try:
+                self.log_queue.get_nowait()
+            except queue.Empty:
+                break
+        print("Active Trial Recording Disengaged. Reverting to Passive Monitoring.")
 
     def set_t_pose(self, state: bool):
         self.is_t_pose = state
+
+    def set_trial_stage(self, stage: int):
+        self.trial_stage = stage
 
     def start_manual_calibration(self, duration_sec: float = None):
         if duration_sec is not None:
@@ -93,13 +116,13 @@ class IMUDataEngine:
         self.manual_calibration_data = {name: {'roll': [], 'pitch': [], 'yaw': []} for name in self.sensor_names}
         self.baseline_computed = {name: False for name in self.sensor_names}
         self.set_t_pose(True)
-        print(f"🔧 Manual calibration started for {self.manual_calibration_duration:.1f}s")
+        print(f"Manual calibration started for {self.manual_calibration_duration:.1f}s")
 
     def cancel_manual_calibration(self):
         self.manual_calibration_active = False
         self.manual_calibration_start = None
         self.set_t_pose(False)
-        print("⚠️ Manual calibration canceled")
+        print("Manual calibration canceled")
 
     def is_manual_calibrating(self):
         return self.manual_calibration_active
@@ -133,7 +156,7 @@ class IMUDataEngine:
             self.manual_calibration_active = False
             self.manual_calibration_start = None
             self.set_t_pose(False)
-            print("✅ Manual calibration complete for all sensors")
+            print("Manual calibration complete for all sensors")
 
     def get_latest_diagnostics(self):
         """Returns live connection status, battery levels, and frequency data from memory."""
@@ -154,8 +177,10 @@ class IMUDataEngine:
         with self.stats_lock:
             current_data = {name: self.latest_orientation_cache[name].copy() for name in self.sensor_names}
 
+            now = time.time()
             has_valid_data = any(
-                current_data[name]["roll"] != 0.0 or current_data[name]["pitch"] != 0.0 or current_data[name]["yaw"] != 0.0
+                now - self.last_seen_timestamps[name] < 4.5
+                and all(math.isfinite(current_data[name].get(axis, 0.0)) for axis in ("roll", "pitch", "yaw"))
                 for name in self.sensor_names
             )
             if not has_valid_data:
@@ -271,7 +296,7 @@ class IMUDataEngine:
     #             print(f"Warning resetting {port}: {e}")
     def hardware_reset(self):
         """Sends a hardware reboot sequence to the ESP32 adapters."""
-        print("⚡ Resetting ESP32 Link layers...")
+        print("Resetting ESP32 Link layers...")
         
         # 1. Force background readers to close their ports
         self.pause_serial = True
@@ -295,7 +320,7 @@ class IMUDataEngine:
                 ser.setDTR(False)
                 ser.setRTS(False)
                 ser.close()
-                print(f"✅ Reset signal sent successfully to {port}")
+                print(f"Reset signal sent successfully to {port}")
             except Exception as e:
                 print(f"Warning resetting {port}: {e}")
                 
@@ -565,10 +590,12 @@ class IMUDataEngine:
                                     'roll': roll_out, 'pitch': pitch_out, 'yaw': yaw_out,
                                 }
 
+                            joint_angles = self.get_latest_joint_angles()
                             self.log_queue.put((
                                 datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3], adjusted_esp32_ts, device_name, 
-                                ax, ay, az, gx_dps, gy_dps, gz_dps, mx, my, mz, 
-                                [q0, q1, q2, q3], roll_out, pitch_out, yaw_out, self.is_t_pose
+                                ax, ay, az, gx_dps, gy_dps, gz_dps, mx, my, mz,
+                                [q0, q1, q2, q3], roll_out, pitch_out, yaw_out, self.is_t_pose,
+                                self.trial_stage, joint_angles["R_HIP-R_SHANK"], joint_angles["L_HIP-L_SHANK"]
                             ))
                             # --- END OF RESTORED PARSING LOGIC ---
                             
@@ -585,7 +612,7 @@ class IMUDataEngine:
                 time.sleep(0.1)
                 continue
                 
-            headers = ['python_time', 'esp32_hw_time', 'sensor_name', 'ax', 'ay', 'az', 'gx', 'gy', 'gz', 'mx', 'my', 'mz', 'q0', 'q1', 'q2', 'q3', 'quat_roll', 'quat_pitch', 'quat_yaw', 'is_paused_flag', 't_pose_flag']
+            headers = ['python_time', 'esp32_hw_time', 'sensor_name', 'ax', 'ay', 'az', 'gx', 'gy', 'gz', 'mx', 'my', 'mz', 'q0', 'q1', 'q2', 'q3', 'quat_roll', 'quat_pitch', 'quat_yaw', 'is_paused_flag', 't_pose_flag', 'stage', 'right_joint_angle', 'left_joint_angle']
             
             try:
                 with open(self.output_filepath, mode='w', newline='') as file:
@@ -595,8 +622,8 @@ class IMUDataEngine:
                     while self.is_logging_active:
                         try:
                             row_data = self.log_queue.get(timeout=0.5)
-                            (py_ts, hw_ts, name, ax, ay, az, gx, gy, gz, mx, my, mz, q, r, p, y, t_pose) = row_data
-                            writer.writerow([py_ts, hw_ts, name, round(ax,4), round(ay,4), round(az,4), round(gx,2), round(gy,2), round(gz,2), round(mx,2), round(my,2), round(mz,2), round(q[0],6), round(q[1],6), round(q[2],6), round(q[3],6), round(r,2), round(p,2), round(y,2), 0, 1 if t_pose else 0])
+                            (py_ts, hw_ts, name, ax, ay, az, gx, gy, gz, mx, my, mz, q, r, p, y, t_pose, stage, right_angle, left_angle) = row_data
+                            writer.writerow([py_ts, hw_ts, name, round(ax,4), round(ay,4), round(az,4), round(gx,2), round(gy,2), round(gz,2), round(mx,2), round(my,2), round(mz,2), round(q[0],6), round(q[1],6), round(q[2],6), round(q[3],6), round(r,2), round(p,2), round(y,2), 0, 1 if t_pose else 0, stage, right_angle, left_angle])
                             if self.log_queue.qsize() == 0: file.flush()
                         except queue.Empty:
                             if not self.is_logging_active: break

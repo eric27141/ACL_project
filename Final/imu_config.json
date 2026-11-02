@@ -1,6 +1,6 @@
 {
-    "com_port_left": "COM11",
-    "com_port_right": "COM10",
+    "com_port_left": "COM8",
+    "com_port_right": "COM7",
     "save_directory": "C:/Users/user/ACL project/Final/\u6578\u64da",
     "last_subject_id": "B123456789",
     "subject_history": [
@@ -8,5 +8,5 @@
         "B123456789"
     ],
     "baud_rate": 921600,
-    "com_ports": "COM20, COM15"
+    "com_ports": "COM8, COM7"
 }

@@ -3,7 +3,12 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import json
 import os
-import winsound  # Built-in Windows library for audio beeps
+
+try:
+    import winsound  # Built-in Windows library for audio beeps
+except ImportError:  # pragma: no cover - GUI on non-Windows platforms should still import
+    winsound = None
+
 from IMU_Data_Engine2 import IMUDataEngine  # Import our new engine
 from datetime import datetime
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -15,8 +20,8 @@ SQUAT_TARGET_LABEL = "R_HIP-R_SHANK / L_HIP-L_SHANK"
 
 # Updated default settings to include Left/Right ports and Subject History
 DEFAULT_CONFIG = {
-    "com_port_left": "COM15",
-    "com_port_right": "COM20",
+    "com_port_left": "COM8",
+    "com_port_right": "COM7",
     "save_directory": "./data",
     "last_subject_id": "",
     "subject_history": [],
@@ -204,17 +209,17 @@ class IMUDashboard(tk.Tk):
         
         for i, name in enumerate(sensors):
             # Formatted box framework to handle changing battery/Hz sizes safely
-            lbl = tk.Label(grid_frame, text=f"🔴 {name} (??%)", width=18, anchor="w", font=("Courier", 9, "bold"), fg="red")
+            lbl = tk.Label(grid_frame, text=f"[OFF] {name} (??%)", width=18, anchor="w", font=("Courier", 9, "bold"), fg="red")
             lbl.grid(row=i//3, column=i%3, padx=5, pady=5)
             self.status_labels[name] = lbl
-            
+
         btn_frame = tk.Frame(diag_frame)
         btn_frame.pack(pady=(10,0))
-        
-        tk.Button(btn_frame, text="🔍 Check Calibration", bg="#9C27B0", fg="white", font=("Arial", 9, "bold"), command=self.open_validator).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="⚡ Reset Links", bg="#f44336", fg="white", font=("Arial", 9, "bold"), command=self.run_reset).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="📊 Open Plotter", bg="#2196F3", fg="white", font=("Arial", 9, "bold"), command=self.open_plotter).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="⚙️ Settings", font=("Arial", 9), command=self.open_settings).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(btn_frame, text="Check Calibration", bg="#9C27B0", fg="white", font=("Arial", 9, "bold"), command=self.open_validator).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Reset Links", bg="#f44336", fg="white", font=("Arial", 9, "bold"), command=self.run_reset).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Open Plotter", bg="#2196F3", fg="white", font=("Arial", 9, "bold"), command=self.open_plotter).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Settings", font=("Arial", 9), command=self.open_settings).pack(side=tk.LEFT, padx=5)
 
     def periodic_diagnostics_refresh(self):
         """Runs silently every 1 second in the background, updating UI states out of cache."""
@@ -228,10 +233,10 @@ class IMUDashboard(tk.Tk):
         
         for name, info in stats.items():
             if info["connected"]:
-                text_layout = f"🟢 {name:<7} ({info['battery']:>4}) {int(info['hz']):>3}Hz"
+                text_layout = f"[OK] {name:<7} ({info['battery']:>4}) {int(info['hz']):>3}Hz"
                 self.status_labels[name].config(text=text_layout, fg="#2E7D32")
             else:
-                text_layout = f"🔴 {name:<7} ( ??%)   0Hz"
+                text_layout = f"[OFF] {name:<7} ( ??%)   0Hz"
                 self.status_labels[name].config(text=text_layout, fg="#C62828")
                 
         # Register next execution hook loop 1000ms from now
@@ -297,7 +302,7 @@ class SensorSelectorDialog(tk.Toplevel):
         self.combo.pack(pady=10)
         
         # Action Launch Button
-        tk.Button(self, text="Launch Live Validator 🚀", bg="#9C27B0", fg="white", font=("Arial", 11, "bold"), 
+        tk.Button(self, text="Launch Live Validator", bg="#9C27B0", fg="white", font=("Arial", 11, "bold"), 
                   padx=10, pady=5, command=self.launch_target_validator).pack(pady=15)
 
     def launch_target_validator(self):
@@ -454,7 +459,7 @@ class SingleCalibrationValidatorWindow(tk.Toplevel):
         self.control_frame.pack(fill=tk.X)
         
         # Button is disabled initially so you can't click it while it's still calculating
-        self.save_btn = tk.Button(self.control_frame, text="💾 Save Plot as Image", font=("Arial", 10, "bold"), state=tk.DISABLED, command=self.save_plot)
+        self.save_btn = tk.Button(self.control_frame, text="Save Plot as Image", font=("Arial", 10, "bold"), state=tk.DISABLED, command=self.save_plot)
         self.save_btn.pack(side=tk.RIGHT, padx=10, pady=5)
         
         self.graph_frame = tk.Frame(self)
@@ -658,12 +663,12 @@ class SettingsDialog(tk.Toplevel):
 
         tk.Label(com_frame, text="Left Leg COM Port:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
         self.com_left = tk.Entry(com_frame, width=15)
-        self.com_left.insert(0, self.config_data.get("com_port_left", "COM15"))
+        self.com_left.insert(0, self.config_data.get("com_port_left", "COM8"))
         self.com_left.grid(row=0, column=1, padx=5, pady=5)
 
         tk.Label(com_frame, text="Right Leg COM Port:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
         self.com_right = tk.Entry(com_frame, width=15)
-        self.com_right.insert(0, self.config_data.get("com_port_right", "COM20"))
+        self.com_right.insert(0, self.config_data.get("com_port_right", "COM7"))
         self.com_right.grid(row=1, column=1, padx=5, pady=5)
 
         # Save Directory
@@ -706,18 +711,20 @@ class TestAWindow(tk.Toplevel):
         self.info_label = tk.Label(self, text="Trial Launching...", font=("Arial", 40, "bold"), bg="black", fg="white")
         self.info_label.pack(expand=True, fill=tk.BOTH)
         
+        self.current_stage = 1
+        self.waiting_for_second_stage = False
         self.reps_done = 0
         self.max_reps = 5
         self.stand_time = 3
         self.squat_time = 5
-        self.squat_target_min_angle = 50.0
-        self.squat_target_max_angle = 60.0
+        self.stage_angle_ranges = {1: (40.0, 50.0), 2: (55.0, 65.0)}
         self.squat_hold_active = False
         self.squat_hold_remaining = self.squat_time
         
         self.bind('<t>', self.start_t_pose); self.bind('<T>', self.start_t_pose)
-        self.bind('<c>', self.zero_current_angles); self.bind('<C>', self.zero_current_angles)
+        self.bind('<KeyPress>', self.handle_keypress)
         self.update_ui("white", "black", "SUBJECT: Adopt Starting Pose\n\nOPERATOR: Strike Key 'T' to begin calibration.\n\nPress 'C' to zero current angles.")
+        self.after_idle(self.focus_force)
 
     def update_ui(self, fg, bg, text):
         self.configure(bg=bg); self.info_label.configure(fg=fg, bg=bg, text=text)
@@ -751,11 +758,13 @@ class TestAWindow(tk.Toplevel):
             self.update_ui("white", "black", f"Prepare to execute Squats...\n\nProtocol beginning in: {seconds_left}")
             self.after(1000, self.prepare_squats, seconds_left - 1)
         else:
+            self.engine.set_trial_stage(self.current_stage)
             self.run_stand_phase(self.stand_time)
 
     def run_stand_phase(self, seconds_left):
+        min_angle, max_angle = self.stage_angle_ranges[self.current_stage]
         if seconds_left > 0:
-            self.update_ui("white", "blue", f"STAND STRAIGHT COMFORTABLY\n\nExecution Rep: {self.reps_done + 1}/{self.max_reps}\n\nHold: {seconds_left}s")
+            self.update_ui("white", "blue", f"STAGE {self.current_stage}/2 - STAND STRAIGHT COMFORTABLY\n\nAngle Range: {min_angle:.0f}°-{max_angle:.0f}°\n\nExecution Rep: {self.reps_done + 1}/{self.max_reps}\n\nHold: {seconds_left}s")
             if seconds_left <= 3: winsound.Beep(800, 150)
             self.after(1000, self.run_stand_phase, seconds_left - 1)
         else:
@@ -763,13 +772,14 @@ class TestAWindow(tk.Toplevel):
             self.run_squat_phase()
 
     def run_squat_phase(self):
+        min_angle, max_angle = self.stage_angle_ranges[self.current_stage]
         angles = self.engine.get_latest_joint_angles()
         right_angle = angles.get("R_HIP-R_SHANK")
         left_angle = angles.get("L_HIP-L_SHANK")
         right_text = f"{right_angle:.1f}°" if right_angle is not None else "--"
         left_text = f"{left_angle:.1f}°" if left_angle is not None else "--"
 
-        if self.engine.is_squat_hold_ready(self.squat_target_min_angle, self.squat_target_max_angle):
+        if self.engine.is_squat_hold_ready(min_angle, max_angle):
             if not self.squat_hold_active:
                 self.squat_hold_active = True
                 self.squat_hold_remaining = self.squat_time
@@ -778,7 +788,7 @@ class TestAWindow(tk.Toplevel):
                 self.update_ui(
                     "black",
                     "green",
-                    f"DROP DOWN INTO SQUAT AND HOLD\n\nTarget: {SQUAT_TARGET_LABEL}\n\nAngle Range: {self.squat_target_min_angle:.0f}°-{self.squat_target_max_angle:.0f}°\n\nExecution Rep: {self.reps_done + 1}/{self.max_reps}\n\nHold: {self.squat_hold_remaining}s\n\nCurrent: R={right_text} / L={left_text}"
+                    f"STAGE {self.current_stage}/2 - DROP DOWN INTO SQUAT AND HOLD\n\nTarget: {SQUAT_TARGET_LABEL}\n\nAngle Range: {min_angle:.0f}°-{max_angle:.0f}°\n\nExecution Rep: {self.reps_done + 1}/{self.max_reps}\n\nHold: {self.squat_hold_remaining}s\n\nCurrent: R={right_text} / L={left_text}"
                 )
                 self.squat_hold_remaining -= 1
                 self.after(1000, self.run_squat_phase)
@@ -788,6 +798,8 @@ class TestAWindow(tk.Toplevel):
                 winsound.Beep(1500, 500)
                 if self.reps_done < self.max_reps:
                     self.run_stand_phase(self.stand_time)
+                elif self.current_stage == 1:
+                    self.await_second_stage()
                 else:
                     self.finish_test()
         else:
@@ -796,12 +808,40 @@ class TestAWindow(tk.Toplevel):
             self.update_ui(
                 "black",
                 "orange",
-                f"DROP DOWN INTO SQUAT AND HOLD\n\nTarget: {SQUAT_TARGET_LABEL}\n\nWaiting for both sides to reach {self.squat_target_min_angle:.0f}°-{self.squat_target_max_angle:.0f}°\n\nExecution Rep: {self.reps_done + 1}/{self.max_reps}\n\nCurrent: R={right_text} / L={left_text}"
+                f"STAGE {self.current_stage}/2 - DROP DOWN INTO SQUAT AND HOLD\n\nTarget: {SQUAT_TARGET_LABEL}\n\nWaiting for both sides to reach {min_angle:.0f}°-{max_angle:.0f}°\n\nExecution Rep: {self.reps_done + 1}/{self.max_reps}\n\nCurrent: R={right_text} / L={left_text}"
             )
             self.after(1000, self.run_squat_phase)
 
+    def await_second_stage(self):
+        self.engine.set_trial_stage(0)
+        self.current_stage = 2
+        self.reps_done = 0
+        self.waiting_for_second_stage = True
+        self.update_ui(
+            "white",
+            "black",
+            "STAGE 1 COMPLETE!\n\nRest as needed.\n\nPress R to begin Stage 2\nTarget angle: 55°-65°"
+        )
+
+    def start_second_stage(self):
+        if not self.waiting_for_second_stage:
+            return
+        self.waiting_for_second_stage = False
+        winsound.Beep(1000, 400)
+        self.prepare_squats(3)
+
+    def handle_keypress(self, event):
+        key = event.keysym.lower()
+        if key == "c":
+            self.zero_current_angles()
+            return "break"
+        if key == "r":
+            self.start_second_stage()
+            return "break"
+
     def finish_test(self):
         self.update_ui("white", "black", "TEST COMPLETE!\n\nFlushing data to disk module...")
+        self.engine.set_trial_stage(0)
         self.engine.stop_active_logging()
         winsound.Beep(800, 150); winsound.Beep(1100, 150); winsound.Beep(1400, 350)
         completed_file = self.engine.output_filepath
@@ -809,14 +849,125 @@ class TestAWindow(tk.Toplevel):
         self.after(2000, lambda: self.auto_launch_plotter(completed_file))
 
     def auto_launch_plotter(self, filepath):
-        # Launch the plotter, pass IMUDashboard as the parent, and give it the file
-        EmbeddedPlotterWindow(self.parent, filepath)
+        SquatResultsWindow(self.parent, filepath)
         self.destroy() # Close the test screen
 
     def on_close(self):
+        self.engine.set_trial_stage(0)
         self.engine.stop_active_logging()
         self.destroy()
 
+
+class SquatResultsWindow(tk.Toplevel):
+    def __init__(self, parent, csv_file_path):
+        super().__init__(parent)
+        self.title(f"Squat Results - {os.path.basename(csv_file_path)}")
+        self.geometry("1200x750")
+        self.csv_file_path = csv_file_path
+        self.figures = []
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        self.graph_frame = tk.Frame(self)
+        self.graph_frame.pack(fill=tk.BOTH, expand=True)
+        self.status_label = tk.Label(self.graph_frame, text="Generating stage angle charts...", font=("Arial", 14))
+        self.status_label.pack(expand=True)
+        self.after(100, self.generate_plot)
+
+    def generate_plot(self):
+        import pandas as pd
+        import matplotlib.pyplot as plt
+
+        try:
+            df = pd.read_csv(self.csv_file_path)
+        except Exception as error:
+            self.status_label.config(text=f"Unable to load squat data:\n{error}", fg="red")
+            return
+
+        required_columns = {
+            "stage", "sensor_name", "esp32_hw_time",
+            "right_joint_angle", "left_joint_angle",
+        }
+        missing_columns = required_columns.difference(df.columns)
+        if missing_columns:
+            self.status_label.config(
+                text="This CSV was created before two-stage angle recording was added.\n"
+                "Run the two-stage squat test again to generate the charts.\n"
+                f"Missing columns: {', '.join(sorted(missing_columns))}",
+                fg="red",
+            )
+            return
+
+        stage_settings = ((1, 40, 50), (2, 55, 65))
+        chart_frame = tk.Frame(self.graph_frame)
+        chart_frame.pack(fill=tk.BOTH, expand=True)
+        generated_paths = []
+        missing_stages = []
+
+        for stage, min_angle, max_angle in stage_settings:
+            stage_df = df[
+                (pd.to_numeric(df["stage"], errors="coerce") == stage)
+                & (df["sensor_name"] == "R_Shank")
+            ].copy()
+            stage_df["esp32_hw_time"] = pd.to_numeric(stage_df["esp32_hw_time"], errors="coerce")
+            stage_df["right_joint_angle"] = pd.to_numeric(stage_df["right_joint_angle"], errors="coerce")
+            stage_df["left_joint_angle"] = pd.to_numeric(stage_df["left_joint_angle"], errors="coerce")
+            stage_df = stage_df.dropna(
+                subset=["esp32_hw_time", "right_joint_angle", "left_joint_angle"]
+            ).sort_values("esp32_hw_time")
+
+            if stage_df.empty:
+                missing_stages.append(stage)
+                continue
+
+            fig, ax = plt.subplots(figsize=(6, 5))
+            fig.suptitle(f"Stage {stage} Squat Joint Angles", fontsize=14, fontweight="bold")
+            ax.set_title(f"Stage {stage}: {min_angle}°-{max_angle}°", fontweight="bold")
+            ax.set_xlabel("Time (seconds)")
+            ax.set_ylabel("Joint angle (°)")
+            ax.grid(True, linestyle="--", alpha=0.6)
+            ax.axhspan(min_angle, max_angle, color="#4CAF50", alpha=0.15, label="Target range")
+            time_seconds = (stage_df["esp32_hw_time"] - stage_df["esp32_hw_time"].iloc[0]) / 1000.0
+            ax.plot(time_seconds, stage_df["right_joint_angle"], color="#2196F3", label="Right")
+            ax.plot(time_seconds, stage_df["left_joint_angle"], color="#FF9800", label="Left")
+            ax.legend(loc="best")
+            fig.tight_layout()
+
+            image_path = os.path.splitext(self.csv_file_path)[0] + f"_Stage{stage}_Angles.png"
+            try:
+                fig.savefig(image_path, dpi=150, bbox_inches="tight")
+            except Exception as error:
+                plt.close(fig)
+                for existing_fig in self.figures:
+                    plt.close(existing_fig)
+                self.figures.clear()
+                self.status_label.config(text=f"Unable to save chart image:\n{error}", fg="red")
+                return
+
+            self.figures.append(fig)
+            generated_paths.append(image_path)
+            stage_frame = tk.Frame(chart_frame)
+            stage_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            canvas = FigureCanvasTkAgg(fig, master=stage_frame)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+            toolbar = NavigationToolbar2Tk(canvas, stage_frame)
+            toolbar.update()
+            canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        if not generated_paths:
+            self.status_label.config(text="No stage angle data was recorded. Run the two-stage squat test again.", fg="red")
+            return
+
+        status_text = "Saved chart images:\n" + "\n".join(generated_paths)
+        if missing_stages:
+            status_text += "\nNo angle data for stage(s): " + ", ".join(map(str, missing_stages))
+        self.status_label.config(text=status_text, fg="#2E7D32" if not missing_stages else "#C62828")
+
+    def on_close(self):
+        import matplotlib.pyplot as plt
+        for fig in self.figures:
+            plt.close(fig)
+        self.destroy()
 
 
 class EmbeddedPlotterWindow(tk.Toplevel):
