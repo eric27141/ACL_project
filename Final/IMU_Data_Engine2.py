@@ -187,9 +187,9 @@ class IMUDataEngine:
                 return False
 
             for name in self.sensor_names:
-                self.zero_angle_offsets[name]["roll"] = current_data[name]["roll"]
-                self.zero_angle_offsets[name]["pitch"] = current_data[name]["pitch"]
-                self.zero_angle_offsets[name]["yaw"] = current_data[name]["yaw"]
+                self.zero_angle_offsets[name]["roll"] += current_data[name]["roll"]
+                self.zero_angle_offsets[name]["pitch"] += current_data[name]["pitch"]
+                self.zero_angle_offsets[name]["yaw"] += current_data[name]["yaw"]
 
             # Keep the latest orientation cache intact; subsequent packets will apply the new zero offset.
         return True
